@@ -1,0 +1,11 @@
+@keyframes slideIn {
+  from { transform: translateY(-10px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+.task-enter { animation: slideIn 0.3s ease-out; }
+.dark { background-color: #111827; }
+.dark .bg-white { background-color: #374151; }
+.dark .text-gray-900 { color: #d1d5db; }
+.dark .border-gray-300 { border-color: #4b5563; }
+.overdue { background-color: #fee2e2; }
+.dark .overdue { background-color: #7f1d1d; }
