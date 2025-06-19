@@ -10,16 +10,52 @@ document.addEventListener('DOMContentLoaded', () => {
   const filterCompleted = document.getElementById('filterCompleted');
   const clearAllBtn = document.getElementById('clearAllBtn');
   const toggleDarkMode = document.getElementById('toggleDarkMode');
+  const canvas = document.getElementById('backgroundCanvas');
+  let ctx;
+
+  try {
+    ctx = canvas.getContext('2d');
+    if (!ctx) throw new Error('Canvas context not supported');
+  } catch (e) {
+    console.error('Canvas initialization failed:', e);
+  }
 
   let tasks = JSON.parse(localStorage.getItem('tasks')) || [];
   let filter = 'all';
 
-  // Request notification permission
+  // Wave Animation
+  let wave = { y: 0, amplitude: 30, frequency: 0.01, phase: 0 }; // Increased amplitude
+  function initCanvas() {
+    if (!canvas || !ctx) return;
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+  }
+  function animateWaves() {
+    if (!ctx || !canvas) return;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    const isDark = document.documentElement.classList.contains('dark');
+    ctx.beginPath();
+    for (let x = 0; x < canvas.width; x++) {
+      const y = canvas.height / 2 + wave.amplitude * Math.sin(wave.frequency * x + wave.phase);
+      ctx.lineTo(x, y);
+    }
+    ctx.lineTo(canvas.width, canvas.height);
+    ctx.lineTo(0, canvas.height);
+    ctx.fillStyle = isDark ? 'rgba(59, 130, 246, 0.3)' : 'rgba(139, 92, 246, 0.3)'; // Bolder colors, higher opacity
+    ctx.fill();
+    wave.phase += 0.05;
+    requestAnimationFrame(animateWaves);
+  }
+  if (ctx) {
+    initCanvas();
+    animateWaves();
+    window.addEventListener('resize', initCanvas);
+  }
+
   if (Notification.permission !== 'granted' && Notification.permission !== 'denied') {
     Notification.requestPermission();
   }
 
-  // Render tasks
   function renderTasks() {
     taskList.innerHTML = '';
     const filteredTasks = tasks.filter(task => {
@@ -27,42 +63,28 @@ document.addEventListener('DOMContentLoaded', () => {
       if (filter === 'completed') return task.completed;
       return true;
     });
-    // Sort tasks: completed last, then by priority (High > Medium > Low)
     filteredTasks.sort((a, b) => {
       if (a.completed !== b.completed) return a.completed ? 1 : -1;
       const priorityOrder = { High: 1, Medium: 2, Low: 3 };
       return priorityOrder[a.priority] - priorityOrder[b.priority];
     });
     filteredTasks.forEach((task, index) => {
+      const originalIndex = tasks.indexOf(task);
       const dueDate = task.dueDate ? new Date(task.dueDate) : null;
       const isOverdue = dueDate && !task.completed && dueDate < new Date();
       const li = document.createElement('li');
-      li.className = `flex items-center justify-between p-3 border border-gray-300 rounded-lg task-enter ${
-        task.completed ? 'bg-green-100' : isOverdue ? 'overdue' : ''
-      }`;
+      li.className = `task-card priority-${task.priority.toLowerCase()} ${task.completed ? 'completed' : ''} ${isOverdue ? 'overdue' : ''}`;
       li.innerHTML = `
-        <div class="flex items-center space-x-2">
-          <span class="${task.completed ? 'line-through text-gray-500' : 'text-gray-900'}">${
-            task.text
-          }</span>
-          <span class="text-xs px-2 py-1 rounded-full ${
-            task.category === 'Work' ? 'bg-blue-200 text-blue-800' :
-            task.category === 'Personal' ? 'bg-purple-200 text-purple-800' :
-            'bg-gray-200 text-gray-800'
-          }">${task.category}</span>
-          <span class="text-xs px-2 py-1 rounded-full ${
-            task.priority === 'High' ? 'bg-red-200 text-red-800' :
-            task.priority === 'Medium' ? 'bg-yellow-200 text-yellow-800' :
-            'bg-green-200 text-green-800'
-          }">${task.priority}</span>
-          ${dueDate ? `<span class="text-xs text-gray-500">${dueDate.toLocaleString()}</span>` : ''}
+        <div class="task-content">
+          <span class="task-text ${task.completed ? 'completed-text' : ''}">${task.text}</span>
+          <span class="badge category-${task.category.toLowerCase()}">${task.category}</span>
+          <span class="badge priority-${task.priority.toLowerCase()}">${task.priority}</span>
+          ${dueDate ? `<span class="due-date">${dueDate.toLocaleString()}</span>` : ''}
         </div>
-        <div class="flex space-x-2">
-          <button onclick="toggleTask(${index})" class="text-green-500 hover:text-green-700 text-sm">
-            ${task.completed ? 'Undo' : 'Complete'}
-          </button>
-          <button onclick="editTask(${index})" class="text-blue-500 hover:text-blue-700 text-sm">Edit</button>
-          <button onclick="deleteTask(${index})" class="text-red-500 hover:text-red-700 text-sm">Delete</button>
+        <div class="task-actions">
+          <button data-index="${originalIndex}" class="btn-toggle">${task.completed ? 'Undo' : 'Complete'}</button>
+          <button data-index="${originalIndex}" class="btn-edit">Edit</button>
+          <button data-index="${originalIndex}" class="btn-delete">Delete</button>
         </div>
       `;
       taskList.appendChild(li);
@@ -70,47 +92,73 @@ document.addEventListener('DOMContentLoaded', () => {
     saveTasks();
   }
 
-  // Add task
   addTaskBtn.addEventListener('click', () => {
     const taskText = taskInput.value.trim();
     const category = categorySelect.value;
     const dueDate = dueDateInput.value;
     const priority = prioritySelect.value;
-    if (taskText) {
-      tasks.push({ text: taskText, category, dueDate: dueDate || null, priority, completed: false });
-      taskInput.value = '';
-      dueDateInput.value = '';
-      prioritySelect.value = 'Medium';
-      renderTasks();
+    const now = new Date();
+    const selectedDate = dueDate ? new Date(dueDate) : null;
+
+    if (!taskText || !category || !dueDate || !priority) {
+      alert('Please fill in all required fields.');
+      return;
+    }
+    if (selectedDate && selectedDate <= now) {
+      alert('Due date must be in the future.');
+      return;
+    }
+
+    tasks.push({ text: taskText, category, dueDate, priority, completed: false });
+    taskInput.value = '';
+    dueDateInput.value = '';
+    prioritySelect.value = 'Medium';
+    categorySelect.value = 'Work';
+    renderTasks();
+  });
+
+  taskList.addEventListener('click', (e) => {
+    const index = parseInt(e.target.dataset.index);
+    if (e.target.classList.contains('btn-toggle')) {
+      toggleTask(index);
+    } else if (e.target.classList.contains('btn-edit')) {
+      editTask(index);
+    } else if (e.target.classList.contains('btn-delete')) {
+      deleteTask(index);
     }
   });
 
-  // Toggle task completion
   function toggleTask(index) {
     tasks[index].completed = !tasks[index].completed;
     renderTasks();
   }
 
-  // Edit task
   function editTask(index) {
     const newText = prompt('Edit task:', tasks[index].text);
     const newDueDate = prompt('Edit due date (YYYY-MM-DDTHH:MM, leave blank for no due date):', tasks[index].dueDate || '');
     const newPriority = prompt('Edit priority (High, Medium, Low):', tasks[index].priority);
+    const newCategory = prompt('Edit category (Work, Personal, Other):', tasks[index].category);
+    const now = new Date();
+    const selectedDate = newDueDate ? new Date(newDueDate) : null;
+
     if (newText !== null && newText.trim()) {
+      if (selectedDate && selectedDate <= now) {
+        alert('Due date must be in the future.');
+        return;
+      }
       tasks[index].text = newText.trim();
       tasks[index].dueDate = newDueDate || null;
       tasks[index].priority = ['High', 'Medium', 'Low'].includes(newPriority) ? newPriority : tasks[index].priority;
+      tasks[index].category = ['Work', 'Personal', 'Other'].includes(newCategory) ? newCategory : tasks[index].category;
       renderTasks();
     }
   }
 
-  // Delete task
   function deleteTask(index) {
     tasks.splice(index, 1);
     renderTasks();
   }
 
-  // Clear all tasks
   clearAllBtn.addEventListener('click', () => {
     if (confirm('Are you sure you want to delete all tasks?')) {
       tasks = [];
@@ -118,7 +166,6 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  // Filter tasks
   filterAll.addEventListener('click', () => {
     filter = 'all';
     renderTasks();
@@ -135,58 +182,42 @@ document.addEventListener('DOMContentLoaded', () => {
     updateFilterButtons();
   });
 
-  // Update filter button styles
   function updateFilterButtons() {
-    filterAll.classList.toggle('bg-blue-500', filter === 'all');
-    filterAll.classList.toggle('text-white', filter === 'all');
-    filterAll.classList.toggle('bg-gray-200', filter !== 'all');
-    filterAll.classList.toggle('text-black', filter !== 'all');
-    filterActive.classList.toggle('bg-blue-500', filter === 'active');
-    filterActive.classList.toggle('text-white', filter === 'active');
-    filterActive.classList.toggle('bg-gray-200', filter !== 'active');
-    filterActive.classList.toggle('text-black', filter !== 'active');
-    filterCompleted.classList.toggle('bg-blue-500', filter === 'completed');
-    filterCompleted.classList.toggle('text-white', filter === 'completed');
-    filterCompleted.classList.toggle('bg-gray-200', filter !== 'completed');
-    filterCompleted.classList.toggle('text-black', filter !== 'completed');
+    filterAll.classList.toggle('active', filter === 'all');
+    filterActive.classList.toggle('active', filter === 'active');
+    filterCompleted.classList.toggle('active', filter === 'completed');
   }
 
-  // Save tasks to local storage
   function saveTasks() {
     localStorage.setItem('tasks', JSON.stringify(tasks));
   }
 
-  // Toggle dark mode
   toggleDarkMode.addEventListener('click', () => {
     document.documentElement.classList.toggle('dark');
-    toggleDarkMode.textContent = document.documentElement.classList.contains('dark') ? '☀️' : '🌙';
+    toggleDarkMode.innerHTML = document.documentElement.classList.contains('dark') ? '<i class="fas fa-sun"></i>' : '<i class="fas fa-moon"></i>';
     localStorage.setItem('darkMode', document.documentElement.classList.contains('dark'));
   });
 
-  // System theme detection
   function applySystemTheme() {
     if (!localStorage.getItem('darkMode')) {
       const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
       document.documentElement.classList.toggle('dark', prefersDark);
-      toggleDarkMode.textContent = prefersDark ? '☀️' : '🌙';
+      toggleDarkMode.innerHTML = prefersDark ? '<i class="fas fa-sun"></i>' : '<i class="fas fa-moon"></i>';
     }
   }
 
-  // Load dark mode preference or system theme
   if (localStorage.getItem('darkMode') === 'true') {
     document.documentElement.classList.add('dark');
-    toggleDarkMode.textContent = '☀️';
+    toggleDarkMode.innerHTML = '<i class="fas fa-sun"></i>';
   } else if (localStorage.getItem('darkMode') === 'false') {
     document.documentElement.classList.remove('dark');
-    toggleDarkMode.textContent = '🌙';
+    toggleDarkMode.innerHTML = '<i class="fas fa-moon"></i>';
   } else {
     applySystemTheme();
   }
 
-  // Listen for system theme changes
   window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applySystemTheme);
 
-  // Check for due tasks and send notifications
   function checkDueTasks() {
     const now = new Date();
     tasks.forEach((task, index) => {
@@ -204,10 +235,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // Run check every 30 seconds
   setInterval(checkDueTasks, 30000);
-
-  // Initial render and check
   renderTasks();
   updateFilterButtons();
   checkDueTasks();
